@@ -1,14 +1,14 @@
-import os
-import logging
-import pandas as pd
 import concurrent.futures
+import logging
+import os
 from itertools import permutations
 
+import pandas as pd
+
+from Database.Db_handler import DatabaseHandler, Source
 from Sites.csdeals import CsDeals
 from Sites.shadowpay import ShadowPay
 from Sites.skinport import Skinport
-
-from Database.Db_handler import DatabaseHandler, Source
 
 # Set up global logger configuration
 logging.basicConfig(

@@ -1,9 +1,9 @@
-import os
 import datetime
+import logging
+import os
 
 import numpy as np
 import pandas as pd
-import logging
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 
@@ -32,7 +32,7 @@ class Source(Base):
     __tablename__ = 'sources'
     source_id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, nullable=False)
-    commission_rate = Column(Float, nullable=False, default=0.0)  # nowa kolumna prowizji
+    commission_rate = Column(Float, nullable=False, default=0.0)
     price_records = relationship('PriceRecord', back_populates='source')
 
 
@@ -43,7 +43,6 @@ class PriceRecord(Base):
     item_id = Column(Integer, ForeignKey('items.item_id'), nullable=False)
     source_id = Column(Integer, ForeignKey('sources.source_id'), nullable=False)
     price = Column(Float, nullable=False)
-    price_after_sell = Column(Float, nullable=True)
     retrieved_at = Column(DateTime, default=datetime.datetime.utcnow)
     item = relationship('Item', back_populates='price_records')
     source = relationship('Source', back_populates='price_records')
@@ -90,11 +89,9 @@ class DatabaseHandler:
             for index, row in df.iterrows():
                 try:
                     item_name = row['name']
-                    # price = float(row['price'])
                     if pd.isna(row['price']) or not np.isfinite(row['price']):
                         continue
                     price = float(row['price'])
-                    price_after_sell = float(row['price_after_sell']) if 'price_after_sell' in row else None
                     retrieved_at = datetime.datetime.utcnow()
 
                     # Check if the item exists (comparison by name)
@@ -120,7 +117,6 @@ class DatabaseHandler:
                         item_id=item.item_id,
                         source_id=source.source_id,
                         price=price,
-                        price_after_sell=price_after_sell,
                         retrieved_at=retrieved_at
                     )
                     self.session.add(price_record)
