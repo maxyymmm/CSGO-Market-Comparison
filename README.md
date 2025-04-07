@@ -1,28 +1,89 @@
-# CSGO-Market-Comparison
-This repository contains a Python script that allows you to compare prices of items from different CS:GO trading platforms. The script takes data from different trading platforms, calculates the potential profit after subtracting the sales fee on each platform, and provides a comparison between trading platforms based on a certain profit threshold **(entered by the user)**.
+# 🛒 CSGO-Market-Comparison
+This repository contains a Python tool that compares item prices from the **three biggest CS:GO trading platforms**: **CS.DEALS**, **ShadowPay**, and **Skinport**.
 
-### Prerequisites
-Python 3.x installed on your system.
-Required Python libraries: requests, pandas, itertools, os.
+## 🛠️ The script works in two modes:
 
-### Usage
-**1)** Choose the desired option:
-**Option 1 - Download data and compare**: This option fetches data from various marketplaces **(CS.DEALS, ShadowPay, SKINPORT, Skinwallet)**, calculates the potential profit after deducting the selling fee on each platform, and provides a comparison between marketplaces based on the specified profit threshold.
+1. **Download, save to database, and generate report**  
+   - Downloads fresh data from all platforms  
+   -  Saves the data to a **PostgreSQL database** (data is kept for up to 7 days, allowing comparisons across different days)
+   - Compares prices only from the latest download (1 day) and generates a report with profitable trades in `RESULTS.csv`
 
-**Option 2 - Compare - WITHOUT downloading**: This option assumes that you have already downloaded the data from the marketplaces and saved them as CSV files in the **sites_download** folder. It directly compares the existing data without making additional API requests.
-![results](https://github.com/maxyymmm/CSGO-Market-Comparison/assets/120425774/ff1b8ddd-c84c-4722-bfed-4f8bd3991980)
+2. **Compare without downloading**  
+   - Uses previously saved CSV files to generate the same CSV report  
+   - No new data is downloaded
 
+![Run1](https://github.com/user-attachments/assets/8f7819d4-8f4e-4173-af7a-f0530a482734)
+
+### 📊 The following **SQL query** finds the best buy and sell offers (after commission) for each item with a profit greater than **10 USD**.
+```SQL
+WITH min_records AS (
+    SELECT DISTINCT ON (item_id)
+           item_id,
+           price AS min_price,
+           retrieved_at AS min_date,
+           source_id AS min_source_id
+    FROM price_records
+    WHERE price IS NOT NULL
+    ORDER BY item_id, price ASC, retrieved_at ASC
+),
+max_records AS (
+    SELECT DISTINCT ON (item_id)
+           item_id,
+           price AS max_price,
+           retrieved_at AS max_date,
+           source_id AS max_source_id
+    FROM price_records
+    WHERE price IS NOT NULL
+    ORDER BY item_id, price DESC, retrieved_at DESC
+)
+SELECT 
+    i.name AS item_name,
+	m.min_date,
+    s1.name AS buy_source,
+    s2.name AS sell_source,
+    x.max_date,
+    -- Buy price: no commission applied
+    ROUND(CAST(m.min_price AS numeric), 2) AS buy_price,
+	-- Sell price: price at which you should sell the item
+    ROUND(CAST(x.max_price AS numeric), 2) AS sell_price,
+    -- Effective sell price: maximum price decreased by commission
+    ROUND(CAST(x.max_price * (1 - s2.commission_rate) AS numeric), 2) AS effective_sell_price,
+    -- Mid price: average of buy price and effective sell price
+    ROUND(CAST((m.min_price + x.max_price * (1 - s2.commission_rate)) / 2.0 AS numeric), 2) AS mid_price,
+    -- Pontential Profit: price difference between effective sell price and buy price
+    ROUND(CAST((x.max_price * (1 - s2.commission_rate) - m.min_price) AS numeric), 2) AS potential_profit
+FROM items i
+JOIN min_records m ON i.item_id = m.item_id
+JOIN sources s1 ON m.min_source_id = s1.source_id
+JOIN max_records x ON i.item_id = x.item_id
+JOIN sources s2 ON x.max_source_id = s2.source_id
+-- Return only records with profit (after commission) greater than 10 USD
+WHERE (x.max_price * (1 - s2.commission_rate) - m.min_price) > 10;
+
+
+```
+![sqlTable](https://github.com/user-attachments/assets/c8c644f9-f4a8-4ce1-8a19-fed43cca9d39)
+![sqlQuery](https://github.com/user-attachments/assets/5e0f8172-d744-4bf7-9320-18e82f6ab17e)
+
+### 🛢️ Database ERD diagram: 
+![ERD](https://github.com/user-attachments/assets/aac3f67c-d685-41ad-8f24-762cc7cff218)
+
+The comparison takes into account each platform’s sales commission, so you can clearly see **where it’s cheapest to buy** and **where it’s most profitable to sell**.
+
+![excel](https://github.com/user-attachments/assets/46064897-3198-484f-ad9f-067b556b96b9)
+
+### 📄 `RESULTS.csv` — automatically generated report based on the most recent downloaded market data.
 
 **The results from all comparisons will be saved in the RESULTS.csv file, and each individual comparison between sites will be stored in CSV files in the sites_results folder.**
 
-### Profit Calculation
+### 📈 Profit Calculation
 The script takes into account the selling fee on each marketplace when calculating the potential profit. For each item, the profit is calculated as follows:
 
 **Profit = Price after selling - Purchase Price - Selling Fee**
 
 Please note that the selling fee varies on each platform and is deducted from the selling price to determine the actual profit.
 
-### CSV Format
+### 🐒 CSV Format
 The **CSV** files generated by the script use **"@"** as the delimiter. This is because some skin names contain spaces or commas, which can cause issues when using these characters as delimiters. By using **"@"** as the delimiter, we ensure that the **CSV** files are properly formatted and the data is correctly parsed.
 
 For example, a CSV record may look like this:
@@ -36,20 +97,95 @@ Column 2: Price on the marketplace (**$23.45**)
 Column 3: Price after selling (considering fees) (**$22.98**)
 _Please note that **"@"** is chosen as the delimiter to minimize conflicts with the data content._
 
-### Configuration
-To use the ShadowPay and Skinwallet APIs, you need to obtain your API tokens and replace the placeholders in the script:
+### 📁Project Structure
+```
+CSGO-Market-Comparison/
+│
+├── Database/
+│   └── Db_handler.py              # Handles all database operations
+│
+├── Sites/                        # Scripts to fetch market data from external APIs
+│   ├── csdeals.py
+│   ├── shadowpay.py
+│   └── skinport.py
+│
+├── Sites_download/              # Contains raw CSVs from each marketplace
+│   ├── csdeals.csv
+│   ├── shadowpay.csv
+│   └── skinport.csv
+│
+├── Sites_results/               # Contains pairwise comparison CSVs
+│   └── csdeals_TO_shadowpay.csv, ...
+│
+├── Utilities/
+│   └── utilities.py              # Helper functions (e.g., HTTP requests)
+│
+├── RESULTS.csv                  # Combined final report (all markets)
+└── main.py                      # Entry point for running the script
 
-```python
-# Replace 'YOUR_SHADOWPAY_TOKEN' with your ShadowPay token
-headers = {'Token': 'YOUR_SHADOWPAY_TOKEN'}
+```
+ ## 📦 Installation
 
-# Replace 'YOUR_SKINWALLET_COOKIE' and 'YOUR_SKINWALLET_TOKEN' with your Skinwallet credentials
-headers = {
-    'cookie': 'YOUR_SKINWALLET_COOKIE',
-    'accept': 'application/json',
-    'x-auth-token': 'YOUR_SKINWALLET_TOKEN'
-}
+This project was developed and tested on:
+- **Ubuntu 24.04**
+- **Python 3.12**
+
+ ### 1️⃣ Clone the repository:
+```bash
+git clone https://github.com/maxyymmm/CSGO-Market-Comparison.git
+cd CSGO-Market-Comparison
+```
+ ### 2️⃣ Install dependencies:
+ ```bash
+pip install -r requirements.txt
+```
+### 3️⃣ Set up your PostgreSQL database
+#### 3.1 Install PostgreSQL (Ubuntu 24.04)
+
+```bash
+sudo apt install curl ca-certificates
+sudo install -d /usr/share/postgresql-common/pgdg
+sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+sudo sh -c 'echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+sudo apt update
+sudo apt -y install postgresql
 ```
 
-### Note
-Please make sure to use this script responsibly and respect the terms and conditions of the marketplaces you are accessing. Be aware that excessive API requests or unauthorized access may lead to restrictions.
+![postgresql_install1](https://github.com/user-attachments/assets/b48600b6-5a7d-4541-8f35-9afab2db8721)
+
+#### 3.2 Create password for 'postgres' user
+```bash
+sudo -i -u postgres
+psql
+\password postgres
+```
+![passwordPostgres](https://github.com/user-attachments/assets/025f07fa-7bfa-4728-9f0b-b76ea671e244)
+
+#### 3.3 Install pgAdmin
+```bash
+curl -fsS https://www.pgadmin.org/static/packages_pgadmin_org.pub | sudo gpg --dearmor -o /usr/share/keyrings/packages-pgadmin-org.gpg
+sudo sh -c 'echo "deb [signed-by=/usr/share/keyrings/packages-pgadmin-org.gpg] https://ftp.postgresql.org/pub/pgadmin/pgadmin4/apt/$(lsb_release -cs) pgadmin4 main" > /etc/apt/sources.list.d/pgadmin4.list && apt update'
+sudo apt install pgadmin4
+sudo apt install pgadmin4-web
+sudo /usr/pgadmin4/bin/setup-web.sh
+```
+Set email and password:
+![pgAdmin](https://github.com/user-attachments/assets/95468516-1a8d-47f9-a6be-8b7d7c5a5e0b)
+
+#### 3.4 Create a database manually in pgAdmin
+Enter your login and password, then create a database using the default settings.
+![postgres1](https://github.com/user-attachments/assets/cef0ef7a-4168-49a8-9ca0-77eaa0dc3dcd)
+![postgres2](https://github.com/user-attachments/assets/807d418a-94c7-43df-b97c-73190b7512e4)
+![sql](https://github.com/user-attachments/assets/0bee9abf-dea4-4af1-8561-1af605bd7842)
+
+#### 3.5 Update the **db_url** variable in **main.py** with your credentials:
+```python
+db_url = "postgresql://username:password@localhost:5432/your_database"
+```
+### 4️⃣ Configure API token 🔐
+To download data from **ShadowPay**, you must provide your **API token**.
+In the file **Sites/shadowpay.py,** update this line:
+```python
+headers = {'Token': ''}  # Replace with your ShadowPay token
+```
+## ✅ You're Ready to Go!
