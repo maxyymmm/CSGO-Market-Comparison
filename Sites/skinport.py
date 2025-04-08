@@ -6,7 +6,7 @@ from Utilities.utilities import send_http_request
 logger = logging.getLogger(__name__)
 
 class Skinport:
-    def __init__(self, download_folder='sites_download'):
+    def __init__(self, download_folder='Sites_download'):
         self.download_folder = download_folder
         os.makedirs(self.download_folder, exist_ok=True)
 
